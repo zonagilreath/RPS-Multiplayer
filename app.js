@@ -26,63 +26,66 @@ game = {
             event.preventDefault();
             let username = $("#uName").val();
             let timestamp = new Date().getTime();
-            // let playStatus = 0;
-            // let opponent = '';
-            // let move = null;
-            game.players.child(username).once("value", function(snap){
-                if (snap.exists()){
-                    alert("Username taken!");
-                }
-                else {
-                    let data = {
-                        username,
-                        timestamp,
-                        // playStatus,
-                        // opponent,
-                        // move,
+            // get snapshot of waiting before adding new player, to avoid race on waiting vs matching
+            game.waiting.orderByChild("timestamp").limitToFirst(1).once("value", function(waitingPlayerSnap){
+                game.players.child(username).once("value", function(usernamesnap){
+                    if (usernamesnap.exists()){
+                        alert("Username taken!");
                     }
-                    game.players.child(username).set(data)
-                    .then(()=>{
-                        console.log("new player added");
+                    else {
+                        let data = {
+                            username,
+                            timestamp,
+                        }
                         game.username = username;
-                        return "Ok"
-                    }).catch((error)=>{
-                        console.log(error);
-                    });
-                }
+                        game.players.child(username).set(data)
+                        console.log("new player added");
+                        game.players.child(username).once("value").then(function(newPlayerSnapshot){
+                            // check if waiting player exists, if so match players, else add new player to waiting
+                            // will still have a race condition on matching, need transactions later
+                            if (waitingPlayerSnap.exists()) {
+                                waitingPlayersObj = waitingPlayerSnap.val();
+                                let player1key = Object.keys(waitingPlayersObj)[0];
+                                game.waiting.child(player1key).remove();
+                                game.opponent = player1key;
+                                let player2key = newPlayerSnapshot.key;
+                                game.players.child(player1key).update({opponent: player2key});
+                                game.players.child(player2key).update({opponent: player1key});
+                                game.gameUI();
+                            } else {
+                                let data = {};
+                                data[newPlayerSnapshot.key] = newPlayerSnapshot.val();
+                                game.waiting.set(data);
+                                game.players.child(game.username).on("value", function(snap){
+                                    if (snap.child("opponent").exists()){
+                                        game.opponent = snap.child("opponent").val();
+                                        game.gameUI();
+                                        game.players.child(game.username).off();
+                                    }
+                                })
+                            }
+
+                        });
+                            // return "Ok"
+                        // }).catch((error)=>{
+                        //     console.log(error);
+                        // });
+                    }
+                });
+
             });
             
         });
         
-        const now = new Date().getTime();
-        const newPlayers = game.players.orderByChild("timestamp").startAt(now);
+        // const now = new Date().getTime();
+        // const newPlayers = game.players.orderByChild("timestamp").startAt(now);
         
-        newPlayers.once("child_added", function(newPlayerSnapshot){
-            game.waiting.orderByChild("timestamp").limitToFirst(1).once("value", function(waitingPlayerSnap){
-                if (waitingPlayerSnap.exists()) {
-                    waitingPlayersObj = waitingPlayerSnap.val();
-                    let player1key = Object.keys(waitingPlayersObj)[0];
-                    game.waiting.child(player1key).remove();
-                    game.opponent = player1key;
-                    let player2key = newPlayerSnapshot.key;
-                    game.players.child(player1key).update({opponent: player2key});
-                    game.players.child(player2key).update({opponent: player1key});
-                    game.gameUI();
-                } else {
-                    let data = {};
-                    data[newPlayerSnapshot.key] = newPlayerSnapshot.val();
-                    game.waiting.set(data);
-                    game.players.child(game.username).on("value", function(snap){
-                        if (snap.child("opponent").exists()){
-                            game.opponent = snap.child("opponent").val();
-                            game.gameUI();
-                            game.players.child(game.username).off();
-                        }
-                    })
+        // newPlayers.once("child_added", function(newPlayerSnapshot){
+        //     game.waiting.orderByChild("timestamp").limitToFirst(1).once("value", function(waitingPlayerSnap){
                 
-                }
-            })
-        });
+        //         }
+        //     })
+        // });
 
     },
 
@@ -138,6 +141,7 @@ game = {
         }
         game.players.child(game.opponent).off();
         game.players.child(game.username).remove();
+        delete game;
     }
 }
 
