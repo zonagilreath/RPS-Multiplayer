@@ -136,6 +136,7 @@ game = {
         }else {
             $("body").html("<h1>YOU LOSE, SORRY!</h1>")
         }
+        game.players.child(game.opponent).off();
         game.players.child(game.username).remove();
     }
 }
